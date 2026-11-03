@@ -7,7 +7,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 /**
- * Validation required env variables 
+ * Validation required environment variables 
  * @param {string[]} required
    @throws {Error}
  */
@@ -31,7 +31,7 @@ export const config = {
     mongodb: {
         uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/hotel-reservation',
         options: {
-            maxPool: 10,
+            maxPoolSize: 10,
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
         }
@@ -41,7 +41,15 @@ export const config = {
     rateLimit: {
         windowMS: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10 ) || 900000,
         maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUEST, 10) || 100,
-    }
+    },
+
+    cors: {
+        origin: process.env.CORS_ORIGIN || '*',
+        credentials: true,
+    },
+
+    // Helpers functions
+    isDevelopment: () => config.nodeEnv === 'development',
 
 };
 

@@ -7,17 +7,29 @@
 import express from 'express';
 import config from './config/env.js';
 
-// import roomRoutes from './routes/roomRoutes.js';
+import roomRoutes from './routes/roomRoutes.js';
 // import bookingRoutes from './routes/bookingRoutes.js';
 // import guestRoutes from './routes/guestRoutes.js';
 // import { message } from 'statuses';
 
 /**
- * Configure express app
+ * Configure the express application
  * @returns {express.Application}
  */
 export function createApp() {
     const app = express();
+
+    app.use(cors(config.cors));
+
+    // Health check
+    app.get('/health', (req, res) => {
+        res.json({
+            success: true,
+            message: 'Hotel Reservation API is running',
+            timestamp: new Date().toISOString(),
+            environment: config.nodeEnv,
+        });
+    });
 
     // API routes
     const apiPrefix = '/api/v1';

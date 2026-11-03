@@ -3,10 +3,10 @@
  * Which it handles MongoDB with Mongoose
  */
 
-import moongose from 'mongoose';
+import mongoose from 'mongoose';
 import { config } from './env.js';
-import { error } from 'node:console';
-import { message } from 'statuses';
+//import { error } from 'node:console';
+//import { message } from 'statuses';
 
 /**
  * Connect to MongoDB with Mongoose instance
@@ -33,7 +33,7 @@ export async function connectDB() {
             console.error('MongoDB connection error:', err);
         });
 
-        moongose.connection.on('disconnected', () => {
+        mongoose.connection.on('disconnected', () => {
             console.warn('MongoDB disconnected');
         });
 
@@ -49,4 +49,25 @@ export async function connectDB() {
     }
 }
 
-export default {connectDB};
+/**
+ * Health check
+ * @returns {boolean}
+ */
+export function isConnected() {
+    return moongose.connection.readyState === 1;
+}
+
+/**
+ * Get connection stats
+ * @returns {Object}
+ */
+export function getConnection() {
+    const connect = mongoose.connection;
+    return {
+        readyState: connect.readyState,
+        host: connect.host,
+        name: connect.name,
+        collections: Object.keys(connect.collections).length,
+    };
+}
+export default {connectDB, isConnected, getConnection};
