@@ -29,7 +29,7 @@ export const config = {
 
     // Database using Mongodb
     mongodb: {
-        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/hotel-reservation',
+        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/hotel-reservation-backend',
         options: {
             maxPoolSize: 10,
             serverSelectionTimeoutMS: 5000,

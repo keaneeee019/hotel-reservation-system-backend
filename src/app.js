@@ -5,9 +5,11 @@
  */
 
 import express from 'express';
+import cors from 'cors';
 import config from './config/env.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 
-import roomRoutes from './routes/roomRoutes.js';
+// import roomRoutes from './routes/roomRoutes.js';
 // import bookingRoutes from './routes/bookingRoutes.js';
 // import guestRoutes from './routes/guestRoutes.js';
 // import { message } from 'statuses';
@@ -52,3 +54,5 @@ export function createApp() {
         });
     });
 }
+
+export default createApp;
