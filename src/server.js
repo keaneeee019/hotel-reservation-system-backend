@@ -26,15 +26,14 @@ async function startServer() {
                 `);
         });
 
-        //Handle server error
+        // Handle server error
         server.on('error', (error) => {
-            if (error.code === 'Adress in use'){
+            if (error.code === 'EADDRINUSE') {
                 console.error(`Port ${config.port} is already in use`);
             } else {
                 console.error('Server error:', error);
             }
-         process.exit(1);
-
+            process.exit(1);
         });
     }
     catch (error) {

@@ -8,16 +8,16 @@ import config from '../config/env.js';
 
 /**
  * Handle Mongoose validation error
- * @param {Error} error 
+ * @param {Error} error
  * @returns {ValidationError}
  */
 function handleMoongoseValidationError(error) {
     const errors = Object.values(error.errors).map(err => ({
         field: err.path,
-        message: err.value,
+        message: err.message,
         value: err.value,
     }));
-    return new ValidationError('Validation is failed', errors);
+    return new ValidationError('Validation failed', errors);
 }
 
 /**
@@ -77,7 +77,7 @@ export async function errorHandler(err, req, res, next) {
     // Handle other errors
     if (err.name === 'ValidationError') {
         error = handleMoongoseValidationError(err);
-    } else if (err.code === 1100) {
+    } else if (err.code === 11000) {
         error = handleDuplicateKey(err);
     } else if (err.name === 'CastError') {
         error = handleCastError(err);
@@ -102,7 +102,7 @@ export async function errorHandler(err, req, res, next) {
 
 /**
  * Async wrapper to catch errors in route handlers
- * @param {Function} fn 
+ * @param {Function} fn
  * @returns {Function}
  */
 export function asyncHandler(fn) {
@@ -111,5 +111,18 @@ export function asyncHandler(fn) {
     };
 }
 
-export default { errorHandler, asyncHandler }
+/**
+ * 404 Not Found handler
+ * @param {Request} req
+ * @param {Response} res
+ * @param {Function} next
+ */
+export function notFoundHandler(req, res, next) {
+    res.status(404).json({
+        success: false,
+        message: `Route ${req.method} ${req.originalUrl} not found`,
+    });
+}
+
+export default { errorHandler, asyncHandler, notFoundHandler }
 

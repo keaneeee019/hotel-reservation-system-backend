@@ -9,10 +9,9 @@ import cors from 'cors';
 import config from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 
-// import roomRoutes from './routes/roomRoutes.js';
-// import bookingRoutes from './routes/bookingRoutes.js';
-// import guestRoutes from './routes/guestRoutes.js';
-// import { message } from 'statuses';
+import roomRoutes from './routes/roomRoutes.js';
+import bookingRoutes from './routes/bookingRoutes.js';
+import guestRoutes from './routes/guestRoutes.js';
 
 /**
  * Configure the express application
@@ -37,7 +36,7 @@ export function createApp() {
     const apiPrefix = '/api/v1';
     app.use(`${apiPrefix}/rooms`, roomRoutes);
     app.use(`${apiPrefix}/bookings`, bookingRoutes);
-    app.use(`${apiPrefix}/guest`, guestRoutes);
+    app.use(`${apiPrefix}/guests`, guestRoutes);
 
     // API documentation redirect
     app.get('/api', (req, res) => {
@@ -53,6 +52,14 @@ export function createApp() {
            },
         });
     });
+
+    // 404 Handler 
+    app.use(notFoundHandler);
+    
+    // Global Error Handler
+    app.use(errorHandler);
+    
+    return app;
 }
 
 export default createApp;

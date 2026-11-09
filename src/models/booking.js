@@ -1,285 +1,457 @@
 /**
- * 
- * Controls booking
- * 
- * Handles all booking related http requests
- */
+* Booking Model
+*
+* Represents a room reservation linking a guest to a room for specific dates.
+*/
 
-import Booking from '../models/booking.js';
-import Room from '../models/room.js';
-import Guest from '../models/guest.js';
-import { asyncHandler } from '../middleware/errorHandler.js';
-import { formatResponse, createPaginationMeta, parsePagination, buildFilter, calculateNights } from '../utils/helpers.js';
+import mongoose, { Schema } from 'mongoose';
+import { generateBookingReference } from '../utils/helpers.js';
 
-/**
- * GET api bookings
- * List all bookings with pagnation, filtering
- */
-export const getBookings = asyncHandler(async (req, res) => {
-    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 10, maxLimit: 50 });
+export const BOOKING_STATUSES = [
+    'pending',      
+    'confirmed',    
+    'checked-in',   
+    'checked-out',  
+    'cancelled',    
+    'no-show',
+];
 
-    const filter = buildFilter(req.query, {
-        status: { type: 'enum', values: ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled', 'no show'] },
-        guestId: { type: 'exact' },
-        roomId: { type: 'exact' },
-    });
+export const PAYMENT_STATUSES = [
+    'pending',
+    'partial',
+    'paid',
+    'refunded',
+    'failed',
+];
 
-    // Date range filters
-    if (req.query.checkIn || req.query.checkOut) {
-        filter.$or = [];
-        if (req.query.checkIn) {
-            filter.$or.push({ checkin: { $gte: new Date(req.query.checkIn) } });
-        }
-        if (req.query.checkOut) {
-            filter.$or.push({ checkOut: { $lte: new Date(req.query.checkOut) } });
-        }
-        if (filter.$or.length === 1) delete filter.$or;
-    }
+const bookingSchema = new Schema({
+    reference: {
+        type: String,
+        unique: true,
+        default: () => generateBookingReference(),
+        index: true,
+    },
 
-    const [bookings, total] = await Promise.all([
-        Booking.find(filter)
-            .populated.find('guest', 'firstName lastName phone')
-            .populate('room', 'roomNumber type pricePerNight')
-            .sort({ checkIn: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
+    guest: {
+        type: Schema.Types.ObjectId,
+        ref: 'Guest',
+        required: [true, 'Guest is required'],
+        index: true,
+    },
 
-        Booking.countDocuments(filter),
-    ]);
+    room: {
+        type: Schema.Types.ObjectId,
+        ref: 'Room',
+        required: [true, 'Room is required'],
+        index: true,
+    },
 
-    const meta = createPaginationMeta(page, limit, total);
+    checkIn: {
+        type: Date,
+        required: [true, 'Check-in date is required'],
+        index: true,
+    },
 
-    res.json(formatResponse(true, bookings, 'Bookings retrieved successfully', meta));
+    checkOut: {
+        type: Date,
+        required: [true, 'Check-out date is required'],
+        index: true,
+    },
+
+    status: {
+        type: String,
+        enum: {
+            values: BOOKING_STATUSES,
+            message: 'Invalid booking status',
+        },
+        default: 'pending',
+        index: true,
+    },
+
+    paymentStatus: {
+        type: String,
+        enum: {
+            values: PAYMENT_STATUSES,
+            message: 'Invalid payment status',
+        },
+        default: 'pending',
+        index: true,
+    },
+
+    pricePerNight: {
+        type: Number,
+        required: [true, 'Price per night is required'],
+        min: [0, 'Price cannot be negative'],
+    },
+
+    totalPrice: {
+        type: Number,
+        required: [true, 'Total price is required'],
+        min: [0, 'Total price cannot be negative'],
+    },
+
+    nights: {
+        type: Number,
+        required: [true, 'Number of nights is required'],
+        min: [1, 'Minimum 1 night'],
+    },
+
+    guestCount: {
+        type: Number,
+        default: 1,
+        min: [1, 'At least 1 guest'],
+        max: [10, 'Maximum 10 guests'],
+    },
+
+    cancelledAt: {
+        type: Date,
+    },
+
+    checkedInAt: {
+        type: Date,
+    },
+
+}, {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+});
+
+// Compound indexes for common queries
+bookingSchema.index({ guest: 1, checkIn: -1 });
+bookingSchema.index({ room: 1, checkIn: 1, checkOut: 1 });
+bookingSchema.index({ status: 1, checkIn: 1 });
+bookingSchema.index({ checkIn: 1, checkOut: 1, status: 1 });
+bookingSchema.index({ createdAt: -1 });
+
+bookingSchema.virtual('guestDetails', {
+    ref: 'Guest',
+    localField: 'guest',
+    foreignField: '_id',
+    justOne: true,
+});
+
+bookingSchema.virtual('statusLabel').get(function() {
+    const labels = {
+        'pending': 'Pending Confirmation',
+        'confirmed': 'Confirmed',
+        'checked-in': 'Checked In',
+        'checked-out': 'Checked Out',
+        'cancelled': 'Cancelled',
+        'no-show': 'No Show',
+    };
+    return labels[this.status] || this.status;
+});
+
+// Is currently active (guest in house)
+bookingSchema.virtual('isActive').get(function() {
+    return ['confirmed', 'checked-in'].includes(this.status);
+});
+
+// Is completed
+bookingSchema.virtual('isCompleted').get(function() {
+    return ['checked-out', 'cancelled', 'no-show'].includes(this.status);
 });
 
 /**
- * Get api bookings stats
- * statistics for dashboard
+ * Calculates total price based on nights and price per night
+ * @returns {number} 
  */
-export const getBookingStats = asyncHandler(async (req, res) => {
-    const stats = await Booking.getStats();
-    res.json(formatResponse(true, stats, 'Booking retrieved successfully'));
-});
-
-export const getTodayCheckIns = asyncHandler(async (req, res) => {
-    const bookings = await Booking.getTodaysCheckIns();
-    res.json(formatResponse(true, bookings, 'Today\'s check-ins retrieved successfully'));
-});
-
-export const getTodayCheckouts = asyncHandler(async (req, res) => {
-    const bookings = await Booking.getTodayChekouts();
-    res.json(formatResponse(true, bookings, 'Today\ s checkouts retrived successfully'));
-});
-
-// Get occupancy rate for date range
-export const getOccupancy = asyncHandler(async (req, res) => {
-    const { startDate, endDate } = req.query;
-
-    if (!startDate || !endDate) {
-    return res.status(400).json(formatResponse(false, null, 'startDate and endDate required'));
-    }
-    
-    const occupancy = await Booking.getOccupancy(new Date(startDate), new Date(endDate));
-    res.json(formatResponse(true, occupancy, 'Occupancy rate retrieved successfully'));
-});
-
-// Get single booking by ID
-export const getBookingByID = asynchandler(async (req, res) => {
-    const booking = await Booking.findByID(req.params.id)
-    .populate('guest', 'firstName lastName phone city country')
-    .populate('room', 'roomNumber type pricePerNight capacity')
-    .lean();
-
-    if (!booking) {
-        return res.status(404).json(formatResponse(false, null, 'Booking no found'));
-    }
-
-    res.json(formatResponse(true, booking, 'Booking retrieved successfully'));
-});
-
-/**
- * POST api bookings
- * Create new booking
- */
-
-export const creatBooking = asyncHandler(async (req, res) => {
-    const { guestId, roomId, checkIn, checkOut, guestCount, source } = req.body;
-
-    const guest = await Guest.findById(guestId);
-    if (!guest) {
-        return res.status(404).json(formatResponse(false, null, 'Guest not found'));
-    }
-
-    const room = await Room.findById(roomId);
-    if (!room) {
-        return res.status(404).json(formatResponse(false, null, 'Room not found'));
-  }
-
-    const isAvailable = await Booking.isRoomAvailable(roomId, new Date(checkIn), new Date(checkOut));
-    if (!isAvailable) {
-        return res.status(404).json(formatResponse(false, null, 'Room not found'));
-  }
-
-    const nights = calculateNights(checkIn, checkOut);
-    const pricePerNight = room.pricePerNight;
-    const totalPrice = nights * pricePerNight;
-
-  // Create booking
-    const booking = await Booking.create({
-        guest: guestId,
-        room: roomId,
-        checkIn: new Date(checkIn),
-        checkOut: new Date(checkOut),
-        nights,
-        priceperNight,
-        totalPrice,
-        guestCount: guestCount || 1,
-        source: source || 'direct',
-        status: 'pending',
-  });
-
-    await booking.populate('guest', 'firstName lastName phone');
-    await booking.populate('room', 'roomNumber type pricePernight');
-
-    res.status(201).json(formatResponse(true, booking, 'Booking created succsessfully'));
-});
-
-/**
- * PUT api bookings
- * Update booking
- */
-
-export const updateBooking = asyncHandler(async (req, res) => {
-    const { checkIn, checkOut, roomId, ...updateData } = req.body;
-
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-        return res.status(404).json(formatResponse(false, null, 'Booking not found'));
-    }
-
-    if (checkIn || checkOut || roomId) {
-        const newCheckIn = checkIn ? new Date(checkIn) : booking.checkIn;
-        const newCheckOut = checkOut ? new Date(checkOut) : booking.checkOut;
-        const newRoomId = roomId || booking.room;
-
-        if (newCheckOut <= newCheckIn) {
-            return res.status(400).json(formatResponse(false, null, 'Check-out must be after Check-in'));
-        }
-
-        const isAvailable = await Booking.isRoomAvailable(newRoomId, newCheckIn, newCheckOut, booking._id);
-        if (!isAvailable) {
-            return res.status(409).json(formatResponse(false, null, 'Room is not available'));
-        }
-
-        // Update price if changes in room or dates
-        if (roomId || checkIn || checkOut) {
-            const room = await Room.findById(newRoomId);
-            const nights = calculateNights(newCheckIn, newCheckOut);
-            updateData.pricePerNight
-            updateData.totalPrice = nights * room.pricePerNight;
-            updateData.nights = nights;
-        }
-    }
-
-    // Update booking
-    Object.assign(booking, updateData);
-    if (checkIn) booking.checkIn = new Date(checkIn);
-    if (checkOut) booking.checkOut = new Date(checkOut);
-    if (roomId) booking.room = roomId;
-    if (guestId) booking.guest = guestId;
-
-    await booking.save();
-
-    await booking.populate('guest', 'firstName lastName phone');
-    await booking.populate('room', 'roomNumber type pricePernight');
-
-    res.json(formatResponse(true, booking, 'Booking updated successfully'));
-});
-
-/**
- * PATCH api bookings
- * Check in a guest
- */
-export const checkIn = asyncHandler(async (req, res) => {
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-        return res.status(404).json(formatResponse(false, null, 'Booking not found'));
-  }
-
-    try {
-        await booking.checkIn();
-        await booking.populate('guest', 'firstName lastName email phone');
-        await booking.populate('room', 'roomNumber type');
-        res.json(formatResponse(true, booking, 'Guest checked in successfully'));
-  } catch (error) {
-    return res.status(400).json(formatResponse(false, null, error.message));
-  }
-});
-
-// PATCH Check out a guest
-export const checkOut = asyncHandler(async (req, res) => {
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-        return res.status(404).json(false, null, 'Booking not found');
-    }
-
-    try {
-        await booking.checkOut();
-        await booking.populate('guest', 'firstName lastName phone');
-        await booking.populate('room', 'roomNumber type');
-        res.json(formatResponse(true, booking, 'Guest checked out successfully'));
-    } catch (error) {
-        return res.status(400).json(formatResponse(false, null, error.message));
-    }
-});
-
-// PATCH Cancel a booking
-export const cancelBooking = asyncHandler(async (req, res) => {
-    const { reason } = req.body;
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-        return res.status(404).json(formatResponse(false, null, 'Booking not found'));
-    }
-
-    try {
-        await booking.cancel(reason);
-        res.json(formatResponse(true, booking, 'Bookin cancelled successfully'));
-    } catch (error) {
-        return res.status(400).json(formatResponse(false, null, error.message));
-    }
-});
-
-/**
- * DELETE api bookings
- * Delete a booking 
- */
-export const deleteBooking = asyncHandler(async (req, res) =>{
-    const booking = await Booking.findById(req.params.id);
-    if(!booking) {
-        return res.status(404).json(false, null, 'Booking not found');
-    }
-
-    if(!['pending', 'cancelled'].includes(booking.status)) {
-        return res.statu(400).json(formatResponse(false, null, 'Can only delete pending or cancelled bookings'));
-    }
-
-    await Booking.findByIdAndDelete(req.params.id);
-    res.json(formatResponse(true, booking, 'Booking deleted successfully'));
-});
-
-export default {
-    getBookings,
-    getBookingStats,
-    getTodayCheckIns,
-    getTodayCheckouts,
-    getOccupancy,
-    getBookingByID,
-    creatBooking,
-    updateBooking,
-    checkIn,
-    checkOut,
-    cancelBooking,
-    deleteBooking,
+bookingSchema.methods.calculateTotal = function() {
+    return this.nights * this.pricePerNight;
 };
 
+/**
+ * Validates booking dates that don't conflict with existing bookings
+ * @returns {Promise<boolean>} 
+ */
+bookingSchema.methods.validateNoConflicts = async function() {
+    const Booking = mongoose.model('Booking');
+
+    const conflict = await Booking.findOne({
+        _id: { $ne: this._id }, // Exclude self
+        room: this.room,
+        status: { $in: ['pending', 'confirmed', 'checked-in'] },
+        $or: [
+            { checkIn: { $lt: this.checkOut }, checkOut: { $gt: this.checkIn } },
+        ],
+    });
+
+    return !conflict;
+};
+
+/**
+ * Confirms the booking
+ * @returns {Promise<Booking>} 
+ */
+bookingSchema.methods.confirm = async function() {
+    if (this.status !== 'pending') {
+        throw new Error('Only pending bookings can be confirmed');
+    }
+    this.status = 'confirmed';
+    return this.save();
+};
+
+/**
+ * Checks in the guest
+ * @returns {Promise<Booking>}
+ */
+bookingSchema.methods.performCheckIn = async function() {
+    if (this.status !== 'confirmed') {
+        throw new Error('Only confirmed bookings can be checked in');
+    }
+    this.status = 'checked-in';
+    this.checkedInAt = new Date();
+
+    // Update room availability
+    const Room = mongoose.model('Room');
+    await Room.findByIdAndUpdate(this.room, { isAvailable: false });
+
+    return this.save();
+};
+
+/**
+ * Checks out the guest
+ * @returns {Promise<Booking>} Updated booking
+ */
+bookingSchema.methods.performCheckOut = async function() {
+    if (this.status !== 'checked-in') {
+        throw new Error('Only checked-in bookings can be checked out');
+    }
+    this.status = 'checked-out';
+    this.checkedOutAt = new Date();
+
+    const Room = mongoose.model('Room');
+    await Room.findByIdAndUpdate(this.room, { isAvailable: true });
+
+    // Update guest stats
+    const Guest = mongoose.model('Guest');
+    await Guest.findByIdAndUpdate(this.guest, {
+        $inc: { totalBookings: 1, totalSpent: this.totalPrice },
+        lastStayAt: this.checkOut,
+    });
+
+    return this.save();
+};
+
+/**
+ * Cancels the booking
+ * @returns {Promise<Booking>} Updated booking
+ */
+bookingSchema.methods.cancel = async function(reason = '') {
+    if (this.isCompleted) {
+        throw new Error('Completed bookings cannot be cancelled');
+    }
+
+    // Store original status before changing
+    const wasActive = ['confirmed', 'checked-in'].includes(this.status);
+
+    this.status = 'cancelled';
+    this.cancelledAt = new Date();
+    this.cancellationReason = reason;
+
+    // Free up room if it was confirmed/checked-in
+    if (wasActive) {
+        const Room = mongoose.model('Room');
+        await Room.findByIdAndUpdate(this.room, { isAvailable: true });
+    }
+
+    return this.save();
+};
+
+/**
+ * Marks as no-show
+ * @returns {Promise<Booking>} 
+ */
+bookingSchema.methods.markNoShow = async function() {
+    if (this.status !== 'confirmed') {
+        throw new Error('Only confirmed bookings can be marked as no-show');
+    }
+    this.status = 'no-show';
+
+    const Room = mongoose.model('Room');
+    await Room.findByIdAndUpdate(this.room, { isAvailable: true });
+
+    return this.save();
+};
+
+/**
+ * Checks room availability for date range
+ * @param {ObjectId} roomId 
+ * @param {Date} checkIn 
+ * @param {Date} checkOut 
+ * @param {ObjectId} [excludeBookingId] 
+ * @returns {Promise<boolean>} 
+ */
+bookingSchema.statics.isRoomAvailable = async function(roomId, checkIn, checkOut, excludeBookingId = null) {
+    const query = {
+        room: roomId,
+        status: { $in: ['pending', 'confirmed', 'checked-in'] },
+        $or: [
+        { checkIn: { $lt: checkOut }, checkOut: { $gt: checkIn } },
+        ],
+    };
+
+    if (excludeBookingId) {
+        query._id = { $ne: excludeBookingId };
+    }
+
+    const conflict = await this.findOne(query);
+    return !conflict;
+};
+
+/**
+ * Finds bookings for a date range (for dashboard/calendar)
+ * @param {Date} startDate 
+ * @param {Date} endDate 
+ * @returns {Promise<Array>}
+ */
+bookingSchema.statics.findByDateRange = async function(startDate, endDate) {
+    return this.find({
+        $or: [
+        { checkIn: { $gte: startDate, $lt: endDate } },
+        { checkOut: { $gt: startDate, $lte: endDate } },
+        { checkIn: { $lte: startDate }, checkOut: { $gte: endDate } },
+        ],
+        status: { $in: ['confirmed', 'checked-in'] },
+    })
+    .populate('guest', 'firstName lastName email phone')
+    .populate('room', 'roomNumber type')
+    .sort({ checkIn: 1 });
+};
+
+/**
+ * Gets today's check-ins
+ * @returns {Promise<Array>} 
+ */
+bookingSchema.statics.getTodaysCheckIns = async function() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return this.find({
+        checkIn: { $gte: today, $lt: tomorrow },
+        status: 'confirmed',
+    })
+    .populate('guest', 'firstName lastName phone')
+    .populate('room', 'roomNumber type');
+};
+
+/**
+ * Gets today's check-outs
+ * @returns {Promise<Array>} 
+ */
+bookingSchema.statics.getTodaysCheckOuts = async function() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return this.find({
+        checkOut: { $gte: today, $lt: tomorrow },
+        status: 'checked-in',
+    })
+    .populate('guest', 'firstName lastName phone')
+    .populate('room', 'roomNumber type');
+};
+
+/**
+ * Gets occupancy rate for date range
+ * @param {Date} startDate 
+ * @param {Date} endDate 
+ * @returns {Promise<Object>} 
+ */
+bookingSchema.statics.getOccupancyRate = async function(startDate, endDate) {
+    const Room = mongoose.model('Room');
+
+    const totalRooms = await Room.countDocuments({ isAvailable: true });
+
+    const bookings = await this.find({
+        status: { $in: ['confirmed', 'checked-in'] },
+        $or: [
+            { checkIn: { $lt: endDate }, checkOut: { $gt: startDate } },
+        ],
+    });
+
+    // Calculate occupied room-nights
+    let occupiedRoomNights = 0;
+    for (const booking of bookings) {
+        const overlapStart = booking.checkIn > startDate ? booking.checkIn : startDate;
+        const overlapEnd = booking.checkOut < endDate ? booking.checkOut : endDate;
+        const nights = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24));
+        occupiedRoomNights += Math.max(0, nights);
+    }
+
+    const totalRoomNights = totalRooms * Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+
+    return {
+        totalRooms,
+        totalRoomNights,
+        occupiedRoomNights,
+        occupancyRate: totalRoomNights > 0 ? (occupiedRoomNights / totalRoomNights * 100).toFixed(1) : 0,
+    };
+};
+
+// Pre-validate: Calculate nights and total price
+bookingSchema.pre('validate', function(next) {
+    if (this.checkIn && this.checkOut) {
+        const checkIn = new Date(this.checkIn);
+        const checkOut = new Date(this.checkOut);
+
+        if (checkOut <= checkIn) {
+            return next(new Error('Check-out must be after check-in'));
+        }
+
+        this.nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+
+        if (this.pricePerNight) {
+            this.totalPrice = this.nights * this.pricePerNight;
+        }
+    }
+    next();
+});
+
+// Pre-save: Validate no conflicts
+bookingSchema.pre('save', async function(next) {
+    if (this.isNew || this.isModified('checkIn') || this.isModified('checkOut') || this.isModified('room')) {
+        const isAvailable = await this.constructor.isRoomAvailable(
+            this.room,
+            this.checkIn,
+            this.checkOut,
+            this.isNew ? null : this._id
+        );
+
+        if (!isAvailable) {
+            return next(new Error('Room is not available for the selected dates'));
+        }
+  }
+  next();
+});
+
+// Post-save: Update room availability on status change
+bookingSchema.post('save', async function(doc) {
+    if (doc.isModified('status')) {
+        const Room = mongoose.model('Room');
+
+    if (doc.status === 'checked-in') {
+        await Room.findByIdAndUpdate(doc.room, { isAvailable: false });
+    } else if (['checked-out', 'cancelled', 'no-show'].includes(doc.status)) {
+
+        // Check if room has other active bookings
+        const activeBookings = await this.constructor.countDocuments({
+            room: doc.room,
+            status: { $in: ['confirmed', 'checked-in'] },
+            _id: { $ne: doc._id },
+        });
+
+        if (activeBookings === 0) {
+            await Room.findByIdAndUpdate(doc.room, { isAvailable: true });
+        }
+    }
+  }
+});
+
+const Booking = mongoose.model('Booking', bookingSchema);
+
+export default Booking;

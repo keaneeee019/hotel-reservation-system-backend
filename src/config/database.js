@@ -54,7 +54,7 @@ export async function connectDB() {
  * @returns {boolean}
  */
 export function isConnected() {
-    return moongose.connection.readyState === 1;
+    return mongoose.connection.readyState === 1;
 }
 
 /**

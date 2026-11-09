@@ -98,7 +98,7 @@ export function buildFilter(query, allowedFilters) {
                 if (query.startDate || query.endDate) {
                     filter[key] = {};
                     if (query.startDate) filter[key].$gte = new Date(query.startDate);
-                    if (query.endDate) filtetr[key].$lte = new Date(query.endDate);
+                    if (query.endDate) filter[key].$lte = new Date(query.endDate);
                 }
                 break;
         }
@@ -141,7 +141,7 @@ export function calculateNights(checkIn, checkOut) {
  * @returns {string}
  */
 export function generateBookingReference() {
-    const timestamp = Date.now().toString(36).toUpperCase;
+    const timestamp = Date.now().toString(36).toUpperCase();
     const random = Math.random().toString(36).substring(2, 6).toUpperCase();
     return `BK-${timestamp}-${random}`;
 }

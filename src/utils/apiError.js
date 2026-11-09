@@ -51,7 +51,7 @@ export class InternalServerError extends ApiError {
 
 export class ValidationError extends ApiError {
     constructor(message = 'Validation failed', errors = []) {
-        super(message, 423);
+        super(message, 400);
         this.errors = errors;
     }
 }

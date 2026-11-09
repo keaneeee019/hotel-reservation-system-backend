@@ -2,8 +2,10 @@
  * which prevents undefined errors
  */
 
+import { config as dotenvConfig } from 'dotenv';
+
 if (process.env.NODE_ENV !== 'production') {
-    import('dotenv').then(dotenv => dotenv.config())
+    dotenvConfig();
 }
 
 /**
@@ -50,6 +52,7 @@ export const config = {
 
     // Helpers functions
     isDevelopment: () => config.nodeEnv === 'development',
+    isProduction: () => config.nodeEnv === 'production',
 
 };
 

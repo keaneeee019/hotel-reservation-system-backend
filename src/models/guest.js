@@ -19,7 +19,7 @@ const guestSchema = new Schema ({
         type: String,
         required: [true, 'Last name is required'],
         trim: true,
-        maxlength: [50, 'Last name cannot exceed 50 characterss'],
+        maxlength: [50, 'Last name cannot exceed 50 characters'],
         index: true,
     },
 
@@ -29,6 +29,14 @@ const guestSchema = new Schema ({
         required: [true, 'Phone number is required'],
         maxlength: [13, 'Phone number cannot exceed 13 characters'],
         match: [/^(09|\+639)\d{9}$/, 'Enter a valid phone number format'],
+    },
+
+    email: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        maxlength: [100, 'Email cannot exceed 100 characters'],
+        match: [/^\S+@\S+\.\S+$/, 'Enter a valid email address'],
     },
 
     // Address information
